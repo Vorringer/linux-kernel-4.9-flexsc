@@ -1,0 +1,1 @@
+/usr/src/linux-4.9.87/scripts/gdb/vmlinux-gdb.py

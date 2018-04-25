@@ -1,0 +1,1 @@
+obj-$(CONFIG_MY_DRIVER) += shmem.o
