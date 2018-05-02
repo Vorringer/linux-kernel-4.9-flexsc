@@ -95,7 +95,7 @@ asmlinkage long sys_flexsc_register(void) {
 	}
 
 	task = kthread_create(&do_syscall, (void *)syscall_page, "flex: ");
-	kthread_bind(task, 2);
+	//kthread_bind(task, 2);
 	wake_up_process(task);
 	registerd = true;
 	if (!task) return -2;
@@ -113,6 +113,7 @@ asmlinkage long sys_flexsc_cancel(void) {
 	if (task) {
 		 kthread_stop(task);
 		 task = NULL;
+		 printk("FLEXSC THREAD STOPPED!");
 	}
 	return 0;
 }
