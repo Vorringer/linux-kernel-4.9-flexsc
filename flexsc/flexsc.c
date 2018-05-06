@@ -58,6 +58,7 @@ int do_syscall(void *addr) {
 					syscall_page[i].arg4,
 					syscall_page[i].arg5);
 
+
 				extern const sys_call_ptr_t sys_call_table[];
 				ret = sys_call_table[syscall_page[i].syscall_num](syscall_page[i].arg0,
 																  syscall_page[i].arg1,
@@ -113,6 +114,7 @@ asmlinkage long sys_flexsc_cancel(void) {
 	if (task) {
 		 kthread_stop(task);
 		 task = NULL;
+		 registerd = false;
 		 printk("FLEXSC THREAD STOPPED!");
 	}
 	return 0;
