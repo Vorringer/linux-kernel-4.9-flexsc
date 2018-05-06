@@ -1,1 +1,1 @@
-/usr/src/linux-4.9.87/scripts/gdb/vmlinux-gdb.py
+/usr/src/linux-kernel-4.9-flexsc/scripts/gdb/vmlinux-gdb.py
