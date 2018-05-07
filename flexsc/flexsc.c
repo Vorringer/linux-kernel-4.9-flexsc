@@ -350,15 +350,35 @@ int argu_type[332][6] = {{0, 1, 0, 0, 0, 0},{0, 1, 0, 0, 0, 0},
 #define SYSCALL_ENTRY_BLOCKED (3)
 
 bool registerd = false;
+
+void *temp_mem = NULL;
 volatile long flexsc_pid = 0;
 
 int fd = -1;
+struct file * mem_file = NULL;
 
 extern void *mem_msg_buf;
 
 extern asmlinkage long sys_mmap_pgoff(unsigned long addr, unsigned long len,
 									  unsigned long prot, unsigned long flags,
 									  unsigned long fd, unsigned long pgoff);
+
+struct file *file_open(const char *path, int flags, int rights) 
+{
+    struct file *filp = NULL;
+    mm_segment_t oldfs;
+    int err = 0;
+
+    oldfs = get_fs();
+    set_fs(get_ds());
+    filp = filp_open(path, flags, rights);
+    set_fs(oldfs);
+    if (IS_ERR(filp)) {
+        err = PTR_ERR(filp);
+        return NULL;
+    }
+    return filp;
+}
 
 struct task_struct *task = NULL;
 
@@ -377,6 +397,36 @@ typedef struct {
 
 typedef long (*sys_call_ptr_t)(long, long, long, long, long, long);
 
+unsigned long mmap_phys_to_virt(unsigned long phys_addr) {
+	unsigned long addr;
+	if (!mem_file) {
+		//fd = sys_open("/dev/mem", O_RDWR | O_SYNC, 0);
+		mem_file = file_open("/dev/mem", O_RDWR | O_SYNC, 0);
+		if (!mem_file) {
+			printk("PHY MEM OPEN FAILED!\n");
+			return 0;
+		}
+	}
+	printk("phys_addr: 0x%lx\n", phys_addr);
+	printk("currnet->active_mm: 0x%lx\n", current->active_mm);
+	addr = do_mmap(mem_file, 0, 1 << 12, PROT_READ | PROT_WRITE, MAP_SHARED, 0, phys_addr, temp_mem);
+	//struct vm_area_struct *vma = find_vma(current->active_mm, temp_mem);
+	//remap_pfn_range(vma,vma->vm_start,phys_addr >> PAGE_SHIFT,vma -> vm_end - vma -> vm_start,vma->vm_page_prot);
+	//unsigned long addr = 
+		//sys_mmap_pgoff(NULL, 1 << PAGE_SHIFT, PROT_READ|PROT_WRITE, MAP_SHARED, fd, phys_addr >> PAGE_SHIFT);
+	//addr += phys_addr & ((1 << PAGE_SHIFT) - 1);
+	//addr = (unsigned long)temp_mem + (phys_addr & ((1 << PAGE_SHIFT) - 1));
+	if (!addr) {
+		printk("MMAP PHYS TO VIRT FAILED!\n");
+		return 0;
+	}
+	return addr;
+}
+
+int change_mm(void) {
+	if (current->mm == NULL) current->mm = find_task_by_vpid(flexsc_pid) -> mm;
+	return 0;
+}
 
 unsigned long convert_addr(unsigned long addr) {
 	struct task_struct *flexsc_task;
@@ -388,8 +438,8 @@ unsigned long convert_addr(unsigned long addr) {
 	struct mm_struct *mm;
 	page = NULL;
 	mm = NULL;
-	printk("ADDR BEFORE CONVERT: %lu\n", addr);
-	printk("FLEXSC_PID: %d\n", flexsc_pid);
+	printk("ADDR BEFORE CONVERT: 0x%lx\n", addr);
+	printk("FLEXSC_PID: %ld\n", flexsc_pid);
 	flexsc_task = find_task_by_vpid(flexsc_pid);
 	if (!flexsc_task) {
 		printk("TASK NOT FOUND!\n");
@@ -417,13 +467,15 @@ unsigned long convert_addr(unsigned long addr) {
 
 	addr = ptep->pte & PTE_PFN_MASK;
 	pte_unmap(ptep);
-	addr = (unsigned long)ioremap(addr, 1 << 6);
-	printk("ADDR AFTER CONVERT: %lu\n", addr);
+	addr = mmap_phys_to_virt(addr);
+	//addr = phys_to_virt(addr);
+	printk("ADDR AFTER CONVERT: 0x%lx\n", addr);
 	return addr;
 out:
 	printk("ERROR IN WALK!\n");
 	return 0;
 }
+
 
 int do_syscall(void *addr) {
 	Syscall_entry *syscall_page; 
@@ -441,13 +493,15 @@ int do_syscall(void *addr) {
 					syscall_page[i].arg3,
 					syscall_page[i].arg4,
 					syscall_page[i].arg5);
-
+/*
 				for (j = 0; j < 6; j++) {
 					if (argu_type[syscall_page[i].syscall_num][j] == 1) {
 						*(unsigned long *)((void *)syscall_page + (i << 6) + 16 + (j << 3)) = 
 							convert_addr(*(unsigned long *)((void *)syscall_page + (i << 6) + 16 + (j << 3)));
 					}
 				}
+*/
+				change_mm();
 				extern const sys_call_ptr_t sys_call_table[];
 				ret = sys_call_table[syscall_page[i].syscall_num](syscall_page[i].arg0,
 																  syscall_page[i].arg1,
@@ -483,7 +537,9 @@ asmlinkage long sys_flexsc_register(long pid) {
 					syscall_page[i].arg5,
 					(int)syscall_page[i].status);
 	}
-
+	if (!temp_mem) {
+		temp_mem = kmalloc(1 << PAGE_SHIFT, GFP_KERNEL);
+	}
 	task = kthread_create(&do_syscall, (void *)syscall_page, "flex: ");
 	//kthread_bind(task, 2);
 	wake_up_process(task);
