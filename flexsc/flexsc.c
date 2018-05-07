@@ -352,6 +352,8 @@ int argu_type[332][6] = {{0, 1, 0, 0, 0, 0},{0, 1, 0, 0, 0, 0},
 bool registerd = false;
 volatile long flexsc_pid = 0;
 
+int fd = -1;
+
 extern void *mem_msg_buf;
 
 extern asmlinkage long sys_mmap_pgoff(unsigned long addr, unsigned long len,
@@ -386,22 +388,28 @@ unsigned long convert_addr(unsigned long addr) {
 	struct mm_struct *mm;
 	page = NULL;
 	mm = NULL;
+	printk("ADDR BEFORE CONVERT: %lu\n", addr);
+	printk("FLEXSC_PID: %d\n", flexsc_pid);
 	flexsc_task = find_task_by_vpid(flexsc_pid);
+	if (!flexsc_task) {
+		printk("TASK NOT FOUND!\n");
+		return 0;
+	}
 	mm = flexsc_task -> mm;
 	pgd = pgd_offset(mm, addr);
 	if (pgd_none(*pgd) || pgd_bad(*pgd))
 	    goto out;
-	printk(KERN_NOTICE "Valid pgd");
+	printk("Valid pgd\n");
 
 	pud = pud_offset(pgd, addr);
 	if (pud_none(*pud) || pud_bad(*pud))
 	    goto out;
-	printk(KERN_NOTICE "Valid pud");
+	printk("Valid pud\n");
 
 	pmd = pmd_offset(pud, addr);
 	if (pmd_none(*pmd) || pmd_bad(*pmd))
 	    goto out;
-	printk(KERN_NOTICE "Valid pmd");
+	printk("Valid pmd\n");
 
 	ptep = pte_offset_map(pmd, addr);
 	if (!ptep)
@@ -409,9 +417,11 @@ unsigned long convert_addr(unsigned long addr) {
 
 	addr = ptep->pte & PTE_PFN_MASK;
 	pte_unmap(ptep);
-	addr = phys_to_virt(addr);
+	addr = (unsigned long)ioremap(addr, 1 << 6);
+	printk("ADDR AFTER CONVERT: %lu\n", addr);
 	return addr;
 out:
+	printk("ERROR IN WALK!\n");
 	return 0;
 }
 
