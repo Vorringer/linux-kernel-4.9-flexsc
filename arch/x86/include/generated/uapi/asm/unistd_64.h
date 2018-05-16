@@ -335,5 +335,6 @@
 #define __NR_pkey_free 331
 #define __NR_flexsc_register 332
 #define __NR_flexsc_cancel 333
+#define __NR_flexsc_mtest 334
 
 #endif /* _ASM_X86_UNISTD_64_H */

@@ -907,4 +907,6 @@ asmlinkage long sys_flexsc_register(long pid);
 
 asmlinkage long sys_flexsc_cancel(void);
 
+asmlinkage long sys_flexsc_mtest(long len);
+
 #endif

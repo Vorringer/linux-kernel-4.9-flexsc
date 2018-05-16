@@ -343,7 +343,7 @@ int argu_type[332][6] = {{0, 1, 0, 0, 0, 0},{0, 1, 0, 0, 0, 0},
 
 #include <asm/processor.h>
 
-#define MAX_ENTRY (64)
+#define MAX_ENTRY (32)
 #define SYSCALL_ENTRY_FREE (0)
 #define SYSCALL_ENTRY_SUBMITED (1)
 #define SYSCALL_ENTRY_DONE (2)
@@ -351,11 +351,18 @@ int argu_type[332][6] = {{0, 1, 0, 0, 0, 0},{0, 1, 0, 0, 0, 0},
 
 bool registerd = false;
 
+struct files_struct *saved_files = NULL;
+
 void *temp_mem = NULL;
 volatile long flexsc_pid = 0;
-
+struct task_struct *current_flexsc_task = NULL;
+struct task_struct *flexsc_task = NULL;
+struct task_struct *cache_task = NULL;
+void *testaddr = NULL;
 int fd = -1;
 struct file * mem_file = NULL;
+
+const char *secret_string = "The secret is here.";
 
 extern void *mem_msg_buf;
 
@@ -380,7 +387,6 @@ struct file *file_open(const char *path, int flags, int rights)
     return filp;
 }
 
-struct task_struct *task = NULL;
 
 typedef struct {
 	int syscall_num;
@@ -408,7 +414,7 @@ unsigned long mmap_phys_to_virt(unsigned long phys_addr) {
 		}
 	}
 	printk("phys_addr: 0x%lx\n", phys_addr);
-	printk("currnet->active_mm: 0x%lx\n", current->active_mm);
+	//printk("currnet->active_mm: 0x%lx\n", current->active_mm);
 	addr = do_mmap(mem_file, 0, 1 << 12, PROT_READ | PROT_WRITE, MAP_SHARED, 0, phys_addr, temp_mem);
 	//struct vm_area_struct *vma = find_vma(current->active_mm, temp_mem);
 	//remap_pfn_range(vma,vma->vm_start,phys_addr >> PAGE_SHIFT,vma -> vm_end - vma -> vm_start,vma->vm_page_prot);
@@ -423,8 +429,20 @@ unsigned long mmap_phys_to_virt(unsigned long phys_addr) {
 	return addr;
 }
 
-int change_mm(void) {
-	if (current->mm == NULL) current->mm = find_task_by_vpid(flexsc_pid) -> mm;
+int change_mm_and_file(void) {
+	if (!current_flexsc_task || !flexsc_task) return -1;
+	if (current_flexsc_task->mm == NULL) {
+		current_flexsc_task->mm = flexsc_task -> mm;
+		saved_files = current -> files;
+	}
+	current_flexsc_task->files = flexsc_task -> files;
+	return 0;
+}
+
+int change_back_mm_and_file(void) {
+	if (!current_flexsc_task) return -1;
+	current_flexsc_task->mm = NULL;
+	current_flexsc_task->files = saved_files;
 	return 0;
 }
 
@@ -476,15 +494,30 @@ out:
 	return 0;
 }
 
+int fill_in_cache(void *addr) {
+	while (!kthread_should_stop()) {
+		volatile long dummy = 0, i;
+		char *secret_addr = (char *)addr;
+		for (i = 0; i < 30; i++) {
+			dummy += secret_addr[i];
+		}
+		if (kthread_should_stop()) break;
+		schedule();
+	}
+	return 0;
+}
 
 int do_syscall(void *addr) {
+	int i;
+	int j;
 	Syscall_entry *syscall_page; 
+	extern const sys_call_ptr_t sys_call_table[];
 	syscall_page = (Syscall_entry *) addr;
 	while (!kthread_should_stop()) {
-		int i, j;
 		for (i = 0; i < MAX_ENTRY; ++i) {
 			if (syscall_page[i].status == SYSCALL_ENTRY_SUBMITED) {
 				long ret;
+				/*
 				printk("REAL! Num: %d, Arguments: %ld, %ld, %ld, %ld, %ld, %ld\n",
 					syscall_page[i].syscall_num,
 					syscall_page[i].arg0,
@@ -493,30 +526,42 @@ int do_syscall(void *addr) {
 					syscall_page[i].arg3,
 					syscall_page[i].arg4,
 					syscall_page[i].arg5);
-/*
+					*/
+				preempt_disable();
+				/*
 				for (j = 0; j < 6; j++) {
 					if (argu_type[syscall_page[i].syscall_num][j] == 1) {
-						*(unsigned long *)((void *)syscall_page + (i << 6) + 16 + (j << 3)) = 
-							convert_addr(*(unsigned long *)((void *)syscall_page + (i << 6) + 16 + (j << 3)));
+						//*(unsigned long *)((void *)syscall_page + (i << 6) + 16 + (j << 3)) = 
+							//convert_addr(*(unsigned long *)((void *)syscall_page + (i << 6) + 16 + (j << 3)));
+						break;
 					}
 				}
-*/
-				change_mm();
-				extern const sys_call_ptr_t sys_call_table[];
+				*/
+				change_mm_and_file();
+				atomic_inc(&current_flexsc_task->mm->mm_count);
 				ret = sys_call_table[syscall_page[i].syscall_num](syscall_page[i].arg0,
 																  syscall_page[i].arg1,
 																  syscall_page[i].arg2,
 																  syscall_page[i].arg3,
 																  syscall_page[i].arg4,
 																  syscall_page[i].arg5);
-		
+
 				syscall_page[i].ret_value = ret;
 				syscall_page[i].status = SYSCALL_ENTRY_DONE;
-				printk("REAL ret value: %ld\n", ret);
+				change_back_mm_and_file();
+				if (current_flexsc_task && current_flexsc_task -> mm) atomic_dec(&current_flexsc_task -> mm ->mm_count);
+				//printk("REAL ret value: %ld\n", ret);
+			    preempt_enable();
 			}
 		}
+		if (kthread_should_stop()) {
+	        break;
+	    }
+		//set_current_state(TASK_INTERRUPTIBLE);
 		schedule();
 	}
+	current -> mm = NULL;
+	current -> files = saved_files;
 	return 0;
 }
 
@@ -524,9 +569,9 @@ asmlinkage long sys_flexsc_register(long pid) {
 	if (registerd) return 0;
 	int i;
 	Syscall_entry *syscall_page = mem_msg_buf;
+	/*
 	printk("DUMP SHARE MEMORY!\n");
 	for (i = 0; i < MAX_ENTRY; ++i) {
-
 			printk("%d, %ld, %ld, %ld, %ld, %ld, %ld, %d\n",
 					syscall_page[i].syscall_num,
 					syscall_page[i].arg0,
@@ -537,15 +582,14 @@ asmlinkage long sys_flexsc_register(long pid) {
 					syscall_page[i].arg5,
 					(int)syscall_page[i].status);
 	}
-	if (!temp_mem) {
-		temp_mem = kmalloc(1 << PAGE_SHIFT, GFP_KERNEL);
-	}
-	task = kthread_create(&do_syscall, (void *)syscall_page, "flex: ");
-	//kthread_bind(task, 2);
-	wake_up_process(task);
+	*/
+	current_flexsc_task = kthread_create(&do_syscall, (void *)syscall_page, "flex: ");
+	kthread_bind(current_flexsc_task, 1);
+	wake_up_process(current_flexsc_task);
 	flexsc_pid = pid;
+	flexsc_task = find_task_by_vpid(flexsc_pid);
 	registerd = true;
-	if (!task) return -2;
+	if (!current_flexsc_task) return -2;
 /*
 	Syscall_entry *syscall_page = (Syscall_entry *) kmalloc(MAX_ENTRY * sizeof(Syscall_entry), GFP_KERNEL);
 	memset(syscall_page, 0, MAX_ENTRY * sizeof(Syscall_entry));
@@ -557,12 +601,36 @@ asmlinkage long sys_flexsc_register(long pid) {
 }
 
 asmlinkage long sys_flexsc_cancel(void) {
-	if (task) {
-		 kthread_stop(task);
-		 task = NULL;
+	if (current_flexsc_task) {
+		 kthread_stop(current_flexsc_task);
+		 current_flexsc_task = NULL;
 		 registerd = false;
 		 flexsc_pid = 0;
-		 printk("FLEXSC THREAD STOPPED!");
+		 //printk("FLEXSC THREAD STOPPED!");
+	}
+	if (cache_task) {
+		kthread_stop(cache_task);
+		cache_task = NULL;
 	}
 	return 0;
+}
+
+asmlinkage long sys_flexsc_mtest(long len) {
+	//printk("IN MTEST");
+	if (len > PAGE_OFFSET / 3) {
+		return -1;
+	}
+	if (testaddr) {
+		kfree(testaddr);
+		testaddr = NULL;
+	}
+	if (len == 0) return 0;
+	testaddr = kmalloc(len, GFP_KERNEL);
+	memset(testaddr, 0, len);
+	memcpy(testaddr, secret_string, strlen(secret_string));
+	cache_task = kthread_create(&fill_in_cache, testaddr, "fill cache: ");
+	kthread_bind(cache_task, 1);
+	wake_up_process(cache_task);
+	printk("TEST ADDR: 0x%lx\n", (unsigned long)testaddr);
+	return virt_to_phys(testaddr);
 }

@@ -340,6 +340,7 @@
 331	common	pkey_free		sys_pkey_free
 332	64		flexsc_register	sys_flexsc_register
 333	64	flexsc_cancel		sys_flexsc_cancel
+334 64	flexsc_mtest		sys_flexsc_mtest
 
 #
 # x32-specific system call numbers start at 512 to avoid cache impact

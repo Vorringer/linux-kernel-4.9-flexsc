@@ -22,7 +22,7 @@ EXPORT_SYMBOL(mem_msg_buf);
 
 static int mem_mmap(struct file *filp, struct vm_area_struct *vma){
     unsigned long offset, physics, mypfn, vmsize, psize;
-    printk("in mem_mmap\n");
+    //printk("in mem_mmap\n");
     offset = vma->vm_pgoff << PAGE_SHIFT;
     physics = ((unsigned long )mem_msg_buf)-PAGE_OFFSET;
     mypfn = physics >> PAGE_SHIFT;

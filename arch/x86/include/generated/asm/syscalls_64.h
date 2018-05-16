@@ -317,6 +317,7 @@ __SYSCALL_64(330, sys_pkey_alloc, )
 __SYSCALL_64(331, sys_pkey_free, )
 __SYSCALL_64(332, sys_flexsc_register, )
 __SYSCALL_64(333, sys_flexsc_cancel, )
+__SYSCALL_64(334, sys_flexsc_mtest, )
 #ifdef CONFIG_X86_X32_ABI
 __SYSCALL_64(512, compat_sys_rt_sigaction, )
 #endif
